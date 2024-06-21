@@ -156,6 +156,12 @@ class GTSRB:
             shuffle=False,
             num_workers=num_workers
         )
+        self.test_loader_shuffle = torch.utils.data.DataLoader(
+            self.test_dataset,
+            shuffle=True,
+            batch_size=batch_size,
+            num_workers=num_workers
+        )
 
         # from https://github.com/openai/CLIP/blob/e184f608c5d5e58165682f7c332c3a8b4c1545f2/data/prompts.md
         self.classnames = [

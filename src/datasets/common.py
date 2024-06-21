@@ -137,3 +137,7 @@ def get_dataloader(dataset, is_train, args, image_encoder=None):
     else:
         dataloader = dataset.train_loader if is_train else dataset.test_loader
     return dataloader
+
+def get_dataloader_shuffle(dataset):
+    dataloader = dataset.test_loader_shuffle
+    return dataloader

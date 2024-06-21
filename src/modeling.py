@@ -48,15 +48,9 @@ class ImageEncoder(torch.nn.Module):
         return cls.load(model_name, state_dict)
 
     @classmethod
-    def load_from_state_dict(cls, model_name, state_dict):
-        (
-            self.model,
-            self.train_preprocess,
-            self.val_preprocess,
-        ) = open_clip.create_model_and_transforms(
-            name, pretrained=pretrained, cache_dir=args.openclip_cachedir
-        )
-        self.model.load_from_state_dict(state_dict)
+    def load_from_state_dict(cls, state_dict, args):
+        encoder = cls(args)
+        encoder.load_from_state_dict(state_dict)
 
 
 class ClassificationHead(torch.nn.Linear):
@@ -95,8 +89,12 @@ class ImageClassifier(torch.nn.Module):
         self.image_encoder = image_encoder
         self.classification_head = classification_head
         if self.image_encoder is not None:
-            self.train_preprocess = self.image_encoder.train_preprocess
-            self.val_preprocess = self.image_encoder.val_preprocess
+            if hasattr(self.image_encoder, 'train_preprocess'):
+                self.train_preprocess = self.image_encoder.train_preprocess
+                self.val_preprocess = self.image_encoder.val_preprocess
+            elif hasattr(self.image_encoder.model, 'train_preprocess'):
+                self.train_preprocess = self.image_encoder.model.train_preprocess
+                self.val_preprocess = self.image_encoder.model.val_preprocess
 
     def freeze_head(self):
         self.classification_head.weight.requires_grad_(False)

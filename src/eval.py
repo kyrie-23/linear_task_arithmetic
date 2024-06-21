@@ -47,6 +47,37 @@ def eval_single_dataset(image_encoder, dataset_name, args):
 
     return metrics
 
+def eval_single_dataset_preprocess_head(image_encoder, head, dataset_name, args):
+    model = ImageClassifier(image_encoder, head)
+
+    model.eval()
+
+    dataset = get_dataset(dataset_name, model.val_preprocess, location=args.data_location,  batch_size=args.batch_size)
+    dataloader = get_dataloader(dataset, is_train=False, args=args, image_encoder=None)
+    device = args.device
+
+    with torch.no_grad():
+        top1, correct, n = 0., 0., 0.
+        for i, data in enumerate(tqdm.tqdm(dataloader)):
+            data = maybe_dictionarize(data)
+            x = data['images'].to(device)
+            y = data['labels'].to(device)
+
+            logits = utils.get_logits(x, model)
+
+            pred = logits.argmax(dim=1, keepdim=True).to(device)
+
+            correct += pred.eq(y.view_as(pred)).sum().item()
+
+            n += y.size(0)
+
+        top1 = correct / n
+
+    metrics = {'top1': top1}
+    print(f'Done evaluating on {dataset_name}. Accuracy: {100 * top1:.2f}%')
+
+    return metrics
+
 
 def evaluate(image_encoder, args):
     if args.eval_datasets is None:

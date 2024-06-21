@@ -1,3 +1,4 @@
+from copy import deepcopy
 import os
 import time
 
@@ -9,7 +10,7 @@ from src.datasets.registry import get_dataset
 from src.distributed import cleanup_ddp, distribute_loader, is_main_process, setup_ddp
 from src.eval import eval_single_dataset
 from src.heads import get_classification_head
-from src.linearize import LinearizedImageEncoder
+from src.linearize import LinearizedImageEncoder, ReluEncoder
 from src.modeling import ImageClassifier, ImageEncoder
 from src.utils import LabelSmoothing, cosine_lr
 
@@ -23,6 +24,7 @@ def finetune(rank, args):
     assert args.finetuning_mode in [
         "linear",
         "standard",
+        "bias-attn",
     ], "Only linear and standard fine-tuning are supported."
 
     linearized_finetuning = args.finetuning_mode == "linear"
@@ -40,9 +42,9 @@ def finetune(rank, args):
         if linearized_finetuning
         else os.path.join(args.save, train_dataset, "zeroshot.pt")
     )
-    if os.path.exists(zs_path) and os.path.exists(ft_path):
-        print(f"Skipping fine-tuning because {ft_path} exists.")
-        return zs_path, ft_path
+    # if os.path.exists(zs_path) and os.path.exists(ft_path):
+    #     print(f"Skipping fine-tuning because {ft_path} exists.")
+    #     return zs_path, ft_path
 
     assert train_dataset is not None, "Please provide a training dataset."
 
@@ -59,6 +61,8 @@ def finetune(rank, args):
             if linearized_finetuning
             else ImageEncoder(args)
         )
+        if args.finetuning_mode == "bias-attn":
+            image_encoder = ReluEncoder(args, image_encoder=image_encoder)
 
     classification_head = get_classification_head(args, train_dataset)
 
@@ -106,11 +110,12 @@ def finetune(rank, args):
     # Saving zero-shot model
     if args.save is not None and is_main_process():
         os.makedirs(ckpdir, exist_ok=True)
-        model_path = (
-            os.path.join(ckpdir, "linear_zeroshot.pt")
-            if linearized_finetuning
-            else os.path.join(ckpdir, "zeroshot.pt")
-        )
+        # model_path = (
+        #     os.path.join(ckpdir, "linear_zeroshot.pt")
+        #     if linearized_finetuning
+        #     else os.path.join(ckpdir, "zeroshot.pt")
+        # )
+        model_path = f"{ckpdir}/{args.finetuning_mode}_zeroshot.pt"
         ddp_model.module.image_encoder.save(model_path)
 
     for epoch in range(args.epochs):
@@ -132,7 +137,11 @@ def finetune(rank, args):
             logits = ddp_model(inputs)
 
             loss = loss_fn(logits, labels)
-
+            if linearized_finetuning:
+                model.image_encoder.model.params0 = deepcopy(model.image_encoder.model.params)
+                for p in model.image_encoder.model.params0:
+                    p.requires_grad = False
+            
             loss.backward()
 
             if (i + 1) % args.num_grad_accumulation == 0:
@@ -176,16 +185,18 @@ def finetune(rank, args):
         eval_single_dataset(image_encoder, train_dataset, args)
 
     if args.save is not None and is_main_process():
-        zs_path = (
-            os.path.join(ckpdir, "linear_zeroshot.pt")
-            if linearized_finetuning
-            else os.path.join(ckpdir, "zeroshot.pt")
-        )
-        ft_path = (
-            os.path.join(ckpdir, "linear_finetuned.pt")
-            if linearized_finetuning
-            else os.path.join(ckpdir, "finetuned.pt")
-        )
+        # zs_path = (
+        #     os.path.join(ckpdir, "linear_zeroshot.pt")
+        #     if linearized_finetuning
+        #     else os.path.join(ckpdir, "zeroshot.pt")
+        # )
+        zs_path = f"{ckpdir}/{args.finetuning_mode}_zeroshot.pt"
+        # ft_path = (
+        #     os.path.join(ckpdir, "linear_finetuned.pt")
+        #     if linearized_finetuning
+        #     else os.path.join(ckpdir, "finetuned.pt")
+        # )
+        ft_path = f"{ckpdir}/{args.finetuning_mode}_finetuned.pt"
         image_encoder.save(ft_path)
         return zs_path, ft_path
 
@@ -194,13 +205,13 @@ def finetune(rank, args):
 
 if __name__ == "__main__":
     train_datasets = [
-        # "Cars",
-        # "DTD",
-        # "EuroSAT",
+        "Cars",
+        "DTD",
+        "EuroSAT",
         "GTSRB",
         "MNIST",
-        # "RESISC45",
-        # "SUN397",
+        "RESISC45",
+        "SUN397",
         "SVHN",
     ]
     epochs = {

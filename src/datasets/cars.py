@@ -58,7 +58,7 @@ class PytorchStanfordCars(VisionDataset):
             self._annotations_mat_path = devkit / "cars_train_annos.mat"
             self._images_base_path = self._base_folder / "cars_train"
         else:
-            self._annotations_mat_path = self._base_folder / "cars_test_annos_withlabels.mat"
+            self._annotations_mat_path = devkit / "cars_test_annos_withlabels.mat"
             self._images_base_path = self._base_folder / "cars_test"
 
         if download:
@@ -135,7 +135,7 @@ class Cars:
                  num_workers=16):
         # Data loading code
 
-        self.train_dataset = PytorchStanfordCars(location, 'train', preprocess, download=True)
+        self.train_dataset = PytorchStanfordCars(location, 'train', preprocess, download=False)
         self.train_loader = torch.utils.data.DataLoader(
             self.train_dataset,
             shuffle=True,
@@ -143,9 +143,15 @@ class Cars:
             num_workers=num_workers,
         )
 
-        self.test_dataset = PytorchStanfordCars(location, 'test', preprocess, download=True)
+        self.test_dataset = PytorchStanfordCars(location, 'test', preprocess, download=False)
         self.test_loader = torch.utils.data.DataLoader(
             self.test_dataset,
+            batch_size=batch_size,
+            num_workers=num_workers
+        )
+        self.test_loader_shuffle = torch.utils.data.DataLoader(
+            self.test_dataset,
+            shuffle=True,
             batch_size=batch_size,
             num_workers=num_workers
         )

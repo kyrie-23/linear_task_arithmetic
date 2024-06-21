@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 from functorch import jvp, make_functional_with_buffers
 
-from modeling import ImageEncoder
-from utils import DotDict
+from src.modeling import ImageEncoder
+from src.utils import DotDict
 
 
 class LinearizedModel(nn.Module):
@@ -30,19 +30,19 @@ class LinearizedModel(nn.Module):
         if init_model is None:
             init_model = model
 
-        _, params0, _ = make_functional_with_buffers(
+        func0, params0, self.buffers0 = make_functional_with_buffers(
             init_model.eval(), disable_autograd_tracking=True
         )
-        # self.func0 = lambda params, x: func0(params, self.buffers0, x)
+        self.func0 = lambda params, x: func0(params, self.buffers0, x)
 
-        func, params, self.buffer = make_functional_with_buffers(
+        _, params, _ = make_functional_with_buffers(
             model, disable_autograd_tracking=True
         )
-        self.func = lambda params, x: func(params, self.buffer, x)
 
         self.params = nn.ParameterList(params)
         self.params0 = nn.ParameterList(params0)
         self._model_name = model.__class__.__name__
+        # self.ln = nn.LayerNorm(512)
 
         # The intial parameters are not trainable.
         for p in self.params0:
@@ -56,11 +56,12 @@ class LinearizedModel(nn.Module):
         """Computes the linearized model output using a first-order Taylor decomposition."""
         dparams = [p - p0 for p, p0 in zip(self.params, self.params0)]
         out, dp = jvp(
-            lambda param: self.func(param, x),
-            (tuple(self.params),),
+            lambda param: self.func0(param, x),
+            (tuple(self.params0),),
             (tuple(dparams),),
         )
-        return out + dp
+        out = torch.relu(out+dp)
+        return out
 
 
 class LinearizedImageEncoder(abc.ABC, nn.Module):
@@ -130,43 +131,117 @@ class LinearizedImageEncoder(abc.ABC, nn.Module):
         state_dict = torch.load(filename, map_location="cpu")
 
         # ImageEncoder expects a DotDict
-        if "model_name" in state_dict:
-            args = DotDict({"model": state_dict["model_name"]})
-        else:
-            args = DotDict({"model": filename.split("/")[1]})
+        args = DotDict({"model": state_dict["model_name"]})
         taylorized_encoder = cls(args)
 
         # Remove the model name from the state dict so that we can load the
         # model.
-        if "model_name" in state_dict:
-            state_dict.pop("model_name")
+        state_dict.pop("model_name")
         taylorized_encoder.load_state_dict(state_dict)
         return taylorized_encoder
+    
+class LinearizedWithRelu(torch.nn.Module):
+    
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.model.bias = None
+        del model.bias
+        self.weight = model.weight
+        self.bias = None
+        
+    def forward(self, x):
+        # return torch.nn.functional.relu(self.model(x))
+        return self.model(x)
+ 
+def _get_submodules(model, key):   
+    parent = model.get_submodule(".".join(key.split(".")[:-1]))
+    target_name = key.split(".")[-1]
+    target = model.get_submodule(key)
+    return parent, target, target_name
 
+class ReluEncoder(abc.ABC, nn.Module):
+    
+    def __init__(self, args=None, keep_lang=False, image_encoder=None):
+        super().__init__()
+        if image_encoder is None:
+            image_encoder = ImageEncoder(args, keep_lang)
+        
+        self.image_encoder = image_encoder
+            
+        self.train_preprocess = image_encoder.train_preprocess
+        self.val_preprocess = image_encoder.val_preprocess
+        self.cache_dir = image_encoder.cache_dir
+        self._model_name = self._get_name(args.model)
+        
+        for params in self.image_encoder.parameters():
+            params.requires_grad = False
+    
+        for key, module in self.image_encoder.named_modules():
+            # if isinstance(module, torch.nn.Linear):
+            #     module.bias.requires_grad = False
+            if isinstance(module, torch.nn.MultiheadAttention):
+                # module.in_proj_bias.requires_grad = True
+                module.in_proj_weight.requires_grad = True
+                module.out_proj.weight.requires_grad = True
+                # module.out_proj.bias.requires_grad = True
+                # parent, target, target_name = _get_submodules(self.image_encoder,key)
+                # setattr(parent, target_name, LinearizedWithRelu(target))
+                # if isinstance(module, torch.nn.Linear):
+                #     module.weight.requires_grad = True
+                #     module.bias.requires_grad = True
+                # parent, target, target_name = _get_submodules(self.image_encoder,key)
+                # setattr(parent, target_name, LinearizedWithRelu(target))
+                
+    def forward(self, x):
+        return self.image_encoder(x)
+    
+    def _get_name(self, model_name):
+        if "__pretrained__" in model_name:
+            model_name, _ = model_name.split("__pretrained__", "")
+        return model_name
+    
+    def save(self, filename):
+        """Saves the linearized image encoder.
 
-def compute_jacobian(model, input):
-    def apply_model(params, x):
-        return functorch.vmap(lambda p: model(p)(x))(params)
+        We save the model name in the state dict so that we can load the
+        correct model when loading the linearized image encoder. Directly using
+        torch.save would not work becuse func0 is not serializable.
 
-    jacrev_fn = functorch.jacrev(apply_model, argnums=0)
-    jacobian = jacrev_fn(model.params, input)
-    return jacobian
+        Args:
+            filename (str): The path to save the taylorized image encoder.
+        """
+        if os.path.dirname(filename) != "":
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-def compute_ntk(model, inputs):
-    ntk_matrix = 0
-    for x in inputs:
-        jacobian = compute_jacobian(model, x)
-        ntk = torch.einsum('...i,...j->...ij', jacobian, jacobian)
-        ntk_matrix += ntk
-    ntk_matrix /= len(inputs)
-    return ntk_matrix
+        state_dict = self.state_dict()
+        state_dict["model_name"] = self._model_name
 
-# Eigenfunction Decomposition
-def eigen_decomposition(ntk_matrix):
-    eigenvalues, eigenvectors = torch.linalg.eigh(ntk_matrix)
-    return eigenvalues, eigenvectors
+        torch.save(state_dict, filename)
+        
+    @classmethod
+    def load(cls, filename):
+        """Loads a linearized image encoder.
 
-# Evaluate Eigenfunction Localization
-def evaluate_localization(eigenvectors, tasks):
-    # Todo: Implementation to evaluate the localization of eigenfunctions
-    # ...
+        It first loads the state dict with the model name and then creates the
+        correct model and loads the state dict.
+
+        Args:
+            filename (str): The path to the taylorized image encoder.
+
+        Returns:
+            LinearizedImageEncoder: The loaded taylorized image encoder.
+        """
+        print(f"Loading image encoder from {filename}")
+        state_dict = torch.load(filename, map_location="cpu")
+
+        # ImageEncoder expects a DotDict
+        args = DotDict({"model": state_dict["model_name"]})
+        taylorized_encoder = cls(args)
+
+        # Remove the model name from the state dict so that we can load the
+        # model.
+        state_dict.pop("model_name")
+        taylorized_encoder.load_state_dict(state_dict)
+        return taylorized_encoder
+    

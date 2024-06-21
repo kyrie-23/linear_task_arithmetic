@@ -2,7 +2,7 @@ import abc
 
 import torch
 
-from src.linearize import LinearizedImageEncoder
+from src.linearize import LinearizedImageEncoder, ReluEncoder
 
 
 class _TaskVector(abc.ABC):
@@ -30,6 +30,8 @@ class _TaskVector(abc.ABC):
                 ).state_dict()
                 self.vector = {}
                 for key in pretrained_state_dict:
+                    if key == "model_name":
+                        continue
                     if pretrained_state_dict[key].dtype == torch.int64:
                         continue
                     if pretrained_state_dict[key].dtype == torch.uint8:
@@ -91,6 +93,14 @@ class _TaskVector(abc.ABC):
             for key in self.vector:
                 new_vector[key] = other * self.vector[key]
         return self.__class__(vector=new_vector)
+    
+    def __truediv__(self, other):
+        """Divide a task vector by a vector."""
+        with torch.no_grad():
+            new_vector = {}
+            for key in self.vector:
+                new_vector[key] = self.vector[key] / other.vector[key]
+        return self.__class__(vector=new_vector)
 
     def dot(self, other):
         """Dot product of two task vectors."""
@@ -108,21 +118,27 @@ class _TaskVector(abc.ABC):
         """Norm of a task vector."""
         return torch.sqrt(self.dot(self))
 
-    def apply_to(self, pretrained_checkpoint, scaling_coef=1.0):
+    def apply_to(self, pretrained_checkpoint, scaling_coef=1.0, residual=True):
         """Apply a task vector to a pretrained model."""
         with torch.no_grad():
             pretrained_model = self._load_checkpoint(pretrained_checkpoint)
             new_state_dict = {}
             pretrained_state_dict = pretrained_model.state_dict()
+            # pretrained_state_dict = pretrained_model
             for key in pretrained_state_dict:
                 if key not in self.vector:
                     print(
                         f"Warning: key {key} is present in the pretrained state dict but not in the task vector"  # noqa: E501
                     )
                     continue
-                new_state_dict[key] = (
-                    pretrained_state_dict[key] + scaling_coef * self.vector[key]
-                )
+                if torch.all(self.vector[key]==0):
+                    new_state_dict[key] = pretrained_state_dict[key]
+                    # new_state_dict[key] = scaling_coef * self.vector[key]
+                else:
+                    new_state_dict[key] = (
+                        pretrained_state_dict[key] + scaling_coef * self.vector[key] 
+                        if residual else scaling_coef * self.vector[key]
+                    )
         pretrained_model.load_state_dict(new_state_dict)
         return pretrained_model
 
@@ -132,6 +148,8 @@ class NonLinearTaskVector(_TaskVector):
 
     def _load_checkpoint(self, checkpoint):
         """Load a checkpoint into a model."""
+        if "bias" in checkpoint or "linear" in checkpoint:
+            return ReluEncoder.load(checkpoint)
         return torch.load(checkpoint, map_location="cpu")
 
     def apply_to_nonlinear(self, pretrained_nonlinear_checkpoint, scaling_coef=1.0):
@@ -186,10 +204,10 @@ def nonlinear_to_linear(nonlinear_task_vector):
             for i, v in enumerate(nonlinear_task_vector.vector.values())
         }
         # The diff of the init params of the linearized moodels are all zero.
-        linear_params |= {
+        linear_params.update({
             f"model.params0.{i}": torch.zeros_like(v)
             for i, v in enumerate(nonlinear_task_vector.vector.values())
-        }
+        })
         return LinearizedTaskVector(vector=linear_params)
 
 

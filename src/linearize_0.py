@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 from functorch import jvp, make_functional_with_buffers
 
-from src.modeling import ImageEncoder
-from src.utils import DotDict
-
+from modeling import ImageEncoder
+from utils import DotDict
+import gc
 
 class LinearizedModel(nn.Module):
     """Creates a linearized version of a nn.Module.
@@ -35,9 +35,10 @@ class LinearizedModel(nn.Module):
         )
         self.func0 = lambda params, x: func0(params, self.buffers0, x)
 
-        _, params, _ = make_functional_with_buffers(
+        func, params, self.buffer = make_functional_with_buffers(
             model, disable_autograd_tracking=True
         )
+        self.func = lambda params, x: func(params, self.buffer, x)
 
         self.params = nn.ParameterList(params)
         self.params0 = nn.ParameterList(params0)
@@ -54,12 +55,20 @@ class LinearizedModel(nn.Module):
     def __call__(self, x) -> torch.Tensor:
         """Computes the linearized model output using a first-order Taylor decomposition."""
         dparams = [p - p0 for p, p0 in zip(self.params, self.params0)]
-        out, dp = jvp(
+        out, dp1 = jvp(
             lambda param: self.func0(param, x),
             (tuple(self.params0),),
             (tuple(dparams),),
         )
-        return out + dp
+        _, dp2 = jvp(
+            lambda param: self.func(param, x),
+            (tuple(self.params),),
+            (tuple(dparams),),
+        )
+        del _
+        gc.collect()
+
+        return out + (dp1+dp2)/2
 
 
 class LinearizedImageEncoder(abc.ABC, nn.Module):
@@ -129,11 +138,43 @@ class LinearizedImageEncoder(abc.ABC, nn.Module):
         state_dict = torch.load(filename, map_location="cpu")
 
         # ImageEncoder expects a DotDict
-        args = DotDict({"model": state_dict["model_name"]})
+        if "model_name" in state_dict:
+            args = DotDict({"model": state_dict["model_name"]})
+        else:
+            args = DotDict({"model": filename.split("/")[1]})
         taylorized_encoder = cls(args)
 
         # Remove the model name from the state dict so that we can load the
         # model.
-        state_dict.pop("model_name")
+        if "model_name" in state_dict:
+            state_dict.pop("model_name")
         taylorized_encoder.load_state_dict(state_dict)
         return taylorized_encoder
+
+
+# def compute_jacobian(model, input):
+#     def apply_model(params, x):
+#         return functorch.vmap(lambda p: model(p)(x))(params)
+
+#     jacrev_fn = functorch.jacrev(apply_model, argnums=0)
+#     jacobian = jacrev_fn(model.params, input)
+#     return jacobian
+
+# def compute_ntk(model, inputs):
+#     ntk_matrix = 0
+#     for x in inputs:
+#         jacobian = compute_jacobian(model, x)
+#         ntk = torch.einsum('...i,...j->...ij', jacobian, jacobian)
+#         ntk_matrix += ntk
+#     ntk_matrix /= len(inputs)
+#     return ntk_matrix
+
+# # Eigenfunction Decomposition
+# def eigen_decomposition(ntk_matrix):
+#     eigenvalues, eigenvectors = torch.linalg.eigh(ntk_matrix)
+#     return eigenvalues, eigenvectors
+
+# # Evaluate Eigenfunction Localization
+# def evaluate_localization(eigenvectors, tasks):
+#     # Todo: Implementation to evaluate the localization of eigenfunctions
+#     # ...

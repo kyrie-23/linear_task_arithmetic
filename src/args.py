@@ -45,7 +45,7 @@ def parse_arguments():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=64,
+        default=128,
     )
     parser.add_argument(
         "--num-grad-accumulation",
@@ -116,7 +116,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--finetuning-mode",
-        choices=["standard", "linear", "posthoc", "none"],
+        choices=["standard", "linear", "posthoc", "none", "linear-2", "bias-attn"],
         help="Whether to use linearized models or not.",
     )
     parser.add_argument(

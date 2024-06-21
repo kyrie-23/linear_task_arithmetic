@@ -299,6 +299,12 @@ class RESISC45:
             batch_size=batch_size,
             num_workers=num_workers
         )
+        self.test_loader_shuffle = torch.utils.data.DataLoader(
+            self.test_dataset,
+            shuffle=True,
+            batch_size=batch_size,
+            num_workers=num_workers
+        )
 
         # class names have _ so split on this for better zero-shot head
         self.classnames = [' '.join(c.split('_')) for c in RESISC45Dataset.classes]
