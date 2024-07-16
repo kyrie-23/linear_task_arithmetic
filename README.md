@@ -1,5 +1,7 @@
 # Fine-Tuning Linear Layers Only Is a Simple yet Effective Way for Task Arithmetic
 
+This is the source code to reproduce the experiments of the paper "[Fine-Tuning Linear Layers Only Is a Simple yet Effective Way for Task Arithmetic](https://arxiv.org/abs/2407.07089)"
+
 Task arithmetic has recently emerged as a cost-effective and scalable approach to edit pre-trained models directly in weight space, by adding the fine-tuned weights of different tasks. The performance has been further improved by a linear property which is illustrated by weight disentanglement. Yet, conventional linearization methods (e.g., NTK linearization) not only double the time and training cost but also have a disadvantage on single-task performance.
 We propose a simple yet effective and efficient method that only fine-tunes linear layers, which improves weight disentanglement and efficiency simultaneously. Specifically, our study reveals that finetuning attention modules occurs in a linear regime by fine-tuning only the linear layers, significantly improving weight disentanglement. 
 To further understand how our method improves the disentanglement of task arithmetic, we present a comprehensive study of task arithmetic by differentiating the role of representation model and task-specific model. Furthermore, we illustrate that weight disentanglement emerges from the representation model, while the performance of task arithmetic has been constrained by task-specific models, such as classification heads.
@@ -126,6 +128,20 @@ python src/eval_task_addition.py --model=ViT-B-32 --finetuning-mode=linear-2
 
 ## Datasets
 To download and prepare the datasets, please use the code in 'src/datasets' directly.
+
+## Reference
+If you find this code useful, please cite the following paper:
+```bibtex
+@misc{jin2024finetuninglinearlayerssimple,
+      title={Fine-Tuning Linear Layers Only Is a Simple yet Effective Way for Task Arithmetic}, 
+      author={Ruochen Jin and Bojian Hou and Jiancong Xiao and Weijie Su and Li Shen},
+      year={2024},
+      eprint={2407.07089},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2407.07089}, 
+}
+```
 
 
 
