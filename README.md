@@ -59,30 +59,6 @@ Sometimes, we may want to apply a non-linear task vector to a `LinearizedImageEn
 linear_edited_encoder = nonlinear_task_vector.apply_to_linear(linear_pretrained_encoder, scaling_coef=0.8)
 ```
 
-### Linearized Models
-
-The module [src/linearize.py](src/linearize.py) provides tools to linearize any PyTorch `nn.Module`.
-
-To linearize any `model` object of the class `nn.Module` one can simply do:
-```python
-from src.linearize import LinearizedModel
-
-model = ... # An object of the class `nn.Module`.
-linear_model = LinearizedModel(model) # This object can be treated as any other `nn.Module`.
-```
-Specifically for `ImageEncoder`s the class `LinearizedImageEncoder` provides a simple way to linearize a CLIP image encoder while retaining the same API as the original object from the `ImageEncoder` class. We can therefore create a linearized CLIP model as:
-```python
-from src.linearize import LinearizedImageEncoder
-from src.heads import get_classification_head
-from src.modeling import ImageClassifier
-
-args = ... # Arguments used to define an `ImageEncoder`.
-linear_encoder = LinearizedImageEncoder(args, keep_lang=False) # This object can be treated as any other `ImageEncoder`.
-
-classification_head = get_classification_head(args, train_dataset)
-
-linear_clip = ImageClassifier(image_encoder, classification_head)
-```
 ### Training
 
 The script `src/finetune.py` can be used to reproduce the training protocol we used to fine-tune our models on all our downstream tasks (both linearly and non-linearly).
