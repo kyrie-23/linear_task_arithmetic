@@ -182,14 +182,14 @@ class ReluEncoder(abc.ABC, nn.Module):
             #     module.bias.requires_grad = False
             if isinstance(module, torch.nn.MultiheadAttention):
                 # module.in_proj_bias.requires_grad = True
-                module.in_proj_weight.requires_grad = True
-                module.out_proj.weight.requires_grad = True
+                # module.in_proj_weight.requires_grad = True
+                # module.out_proj.weight.requires_grad = True
                 # module.out_proj.bias.requires_grad = True
                 # parent, target, target_name = _get_submodules(self.image_encoder,key)
                 # setattr(parent, target_name, LinearizedWithRelu(target))
-                # if isinstance(module, torch.nn.Linear):
-                #     module.weight.requires_grad = True
-                #     module.bias.requires_grad = True
+                if isinstance(module, torch.nn.Linear):
+                    module.weight.requires_grad = True
+                    module.bias.requires_grad = True
                 # parent, target, target_name = _get_submodules(self.image_encoder,key)
                 # setattr(parent, target_name, LinearizedWithRelu(target))
                 
