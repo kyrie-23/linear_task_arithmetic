@@ -24,7 +24,7 @@ def finetune(rank, args):
     assert args.finetuning_mode in [
         "linear",
         "standard",
-        "bias-attn",
+        "linear-2",
     ], "Only linear and standard fine-tuning are supported."
 
     linearized_finetuning = args.finetuning_mode == "linear"
@@ -61,7 +61,7 @@ def finetune(rank, args):
             if linearized_finetuning
             else ImageEncoder(args)
         )
-        if args.finetuning_mode == "bias-attn":
+        if args.finetuning_mode == "linear-2":
             image_encoder = ReluEncoder(args, image_encoder=image_encoder)
 
     classification_head = get_classification_head(args, train_dataset)
