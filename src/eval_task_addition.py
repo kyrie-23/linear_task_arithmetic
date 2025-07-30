@@ -25,7 +25,7 @@ elif args.finetuning_mode == "linear":
 elif args.finetuning_mode == "posthoc":
     print("Evaluating post-hoc linearized models.")
     ft_accuracies_path = os.path.join(args.save, "posthoc_ft_accuracies.json")
-elif args.finetuning_mode == "bias-attn":
+elif args.finetuning_mode == "linear-2":
     print("Evaluating linear-2 FT models.")
     ft_accuracies_path = f"{args.save}/{args.finetuning_mode}_ft_accuracies.json"
 else:
